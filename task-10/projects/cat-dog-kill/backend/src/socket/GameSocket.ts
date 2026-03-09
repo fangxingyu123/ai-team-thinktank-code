@@ -2,6 +2,13 @@ import { Server as SocketServer, Socket } from 'socket.io';
 import { ServerEvents, ClientEvents, Player, Room } from '../types';
 import { roomService } from '../services/RoomService';
 import { gameService } from '../services/GameService';
+import { spectatorService } from '../services/SpectatorService';
+import {
+  broadcastToSpectators,
+  broadcastToSpectatorsImmediate,
+  initSpectatorRoom,
+  cleanupSpectatorRoom,
+} from './SpectatorSocket';
 import { config } from '../config';
 
 // 存储 socket 到玩家/房间的映射
@@ -115,6 +122,12 @@ export function setupGameSocket(io: SocketServer) {
       // 分配角色
       roomService.assignRoles(room);
 
+      // 初始化观战房间
+      initSpectatorRoom(io, room.id, {
+        maxSpectators: 10,
+        delaySeconds: 5,
+      });
+
       // 开始游戏
       const success = gameService.startGame(room);
       if (!success) {
@@ -170,6 +183,12 @@ export function setupGameSocket(io: SocketServer) {
           playerId: mapping.playerId,
           position,
         });
+
+        // 广播给观战者（带延迟）
+        broadcastToSpectators(io, room.id, 'spectator:player-moved', {
+          playerId: mapping.playerId,
+          position,
+        });
       }
     });
 
@@ -188,12 +207,27 @@ export function setupGameSocket(io: SocketServer) {
           killerId: mapping.playerId,
         });
 
+        // 广播给观战者（带延迟）
+        broadcastToSpectators(io, room.id, 'spectator:player-killed', {
+          victimId: targetId,
+          killerId: mapping.playerId,
+        });
+
         // 检查游戏是否结束
         if (room.gameState?.status === 'ended') {
           io.to(room.id).emit('game:ended', {
             winner: room.gameState.winner!,
             reason: room.gameState.endReason!,
           });
+
+          // 立即通知观战者游戏结束
+          broadcastToSpectatorsImmediate(io, room.id, 'spectator:game-ended', {
+            winner: room.gameState.winner!,
+            reason: room.gameState.endReason!,
+          });
+
+          // 清理观战房间
+          cleanupSpectatorRoom(io, room.id);
         }
       } else {
         socket.emit('error', { code: 'KILL_FAILED', message: result.error || '击杀失败' });
@@ -215,12 +249,27 @@ export function setupGameSocket(io: SocketServer) {
           taskId,
         });
 
+        // 广播给观战者（带延迟）
+        broadcastToSpectators(io, room.id, 'spectator:task-completed', {
+          playerId: mapping.playerId,
+          taskId,
+        });
+
         // 检查游戏是否结束
         if (room.gameState?.status === 'ended') {
           io.to(room.id).emit('game:ended', {
             winner: room.gameState.winner!,
             reason: room.gameState.endReason!,
           });
+
+          // 立即通知观战者游戏结束
+          broadcastToSpectatorsImmediate(io, room.id, 'spectator:game-ended', {
+            winner: room.gameState.winner!,
+            reason: room.gameState.endReason!,
+          });
+
+          // 清理观战房间
+          cleanupSpectatorRoom(io, room.id);
         }
       }
     });
@@ -240,6 +289,24 @@ export function setupGameSocket(io: SocketServer) {
           meeting: result.meeting,
           callerName: caller?.name || 'Unknown',
         });
+
+        // 广播给观战者（带延迟）
+        const config = spectatorService.getConfig(room.id);
+        if (config) {
+          const spectatorMeeting = {
+            id: result.meeting.id,
+            type: result.meeting.type,
+            callerName: caller?.name || 'Unknown',
+            isActive: result.meeting.isActive,
+            votes: result.meeting.votes,
+            voteCount: new Map(),
+            timeRemaining: room.gameConfig.discussionTime + room.gameConfig.votingTime,
+          };
+          broadcastToSpectators(io, room.id, 'spectator:meeting-called', {
+            meeting: spectatorMeeting,
+            callerName: caller?.name || 'Unknown',
+          });
+        }
       } else {
         socket.emit('error', { code: 'MEETING_FAILED', message: result.error || '无法召开会议' });
       }

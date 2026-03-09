@@ -8,7 +8,9 @@ import Redis from 'ioredis';
 
 import { config } from './config';
 import { setupGameSocket } from './socket/GameSocket';
+import { setupSpectatorSocket } from './socket/SpectatorSocket';
 import { roomService } from './services/RoomService';
+import { spectatorService } from './services/SpectatorService';
 
 // 创建 Express 应用
 const app = express();
@@ -39,6 +41,29 @@ app.get('/health', (req, res) => {
 app.get('/api/rooms', (req, res) => {
   const rooms = roomService.getRoomList();
   res.json({ rooms });
+});
+
+// 获取房间观战信息 API
+app.get('/api/rooms/:roomId/spectator', (req, res) => {
+  const { roomId } = req.params;
+  const room = roomService.getRoom(roomId);
+
+  if (!room) {
+    return res.status(404).json({ error: '房间不存在' });
+  }
+
+  const stats = spectatorService.getStats(roomId);
+  const config = spectatorService.getConfig(roomId);
+
+  res.json({
+    roomId,
+    enabled: stats.enabled,
+    canSpectate: room.status === 'playing' && stats.enabled,
+    spectatorCount: stats.count,
+    maxSpectators: stats.max,
+    delaySeconds: stats.delaySeconds,
+    revealRoles: config?.revealRoles ?? true,
+  });
 });
 
 // 数据库连接
@@ -83,6 +108,7 @@ async function startServer() {
 
   // 设置 Socket.IO
   setupGameSocket(io);
+  setupSpectatorSocket(io);
 
   // 启动 HTTP 服务器
   httpServer.listen(config.server.port, () => {
