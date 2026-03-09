@@ -1,5 +1,25 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { UserCosmeticSchema } from './Cosmetic';
+
+export interface IUserCosmetic {
+  cosmeticId: string;
+  acquiredAt: Date;
+  isEquipped: boolean;
+  equipSlot?: string;
+}
+
+export interface IUserInventory {
+  coins: number;
+  gems: number;
+  ownedCosmetics: Map<string, IUserCosmetic>;
+  equippedSkins: { [role: string]: string | null };
+  equippedHats: { [role: string]: string | null };
+  equippedPets: { [role: string]: string | null };
+  equippedAnimations: { [role: string]: string | null };
+  equippedTrails: { [role: string]: string | null };
+  equippedKillEffects: { [role: string]: string | null };
+}
 
 export interface IUser extends Document {
   username: string;
@@ -14,6 +34,7 @@ export interface IUser extends Document {
     dogWins: number;
     foxWins: number;
   };
+  inventory: IUserInventory;
   lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +78,40 @@ const UserSchema: Schema = new Schema(
     lastLoginAt: {
       type: Date,
       default: null,
+    },
+    // 装扮/皮肤系统库存
+    inventory: {
+      coins: { type: Number, default: 1000 }, // 初始金币
+      gems: { type: Number, default: 50 },    // 初始宝石
+      ownedCosmetics: {
+        type: Map,
+        of: UserCosmeticSchema,
+        default: new Map(),
+      },
+      equippedSkins: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
+      equippedHats: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
+      equippedPets: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
+      equippedAnimations: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
+      equippedTrails: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
+      equippedKillEffects: {
+        type: Schema.Types.Mixed,
+        default: {},
+      },
     },
   },
   {
