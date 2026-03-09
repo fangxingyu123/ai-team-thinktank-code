@@ -1,6 +1,7 @@
 import { Room, Player, GameState, GameStatus, Meeting, MeetingResult, Position, Sabotage, ChatMessage } from '../types';
 import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
+import { replayRecorderService } from './ReplayRecorderService';
 
 export class GameService {
   // 开始游戏
@@ -25,6 +26,10 @@ export class GameService {
       room.gameState!.totalTasks += player.tasks.length;
     });
 
+    // 开始录制回放
+    const gameId = replayRecorderService.startRecording(room);
+    room.gameState!.gameId = gameId;
+
     return true;
   }
 
@@ -43,6 +48,12 @@ export class GameService {
     if (room.gameState?.status !== 'playing') return false;
 
     player.position = position;
+    
+    // 录制移动事件
+    if (room.gameState?.gameId) {
+      replayRecorderService.recordPlayerMove(room.gameState.gameId, playerId, position);
+    }
+    
     return true;
   }
 
@@ -78,6 +89,16 @@ export class GameService {
     killer.lastKillTime = new Date();
     killer.killCooldown = room.gameConfig.killCooldown;
 
+    // 录制击杀事件
+    if (room.gameState?.gameId) {
+      replayRecorderService.recordKill(
+        room.gameState.gameId,
+        killerId,
+        victimId,
+        victim.position
+      );
+    }
+
     // 检查游戏结束条件
     this.checkGameEnd(room);
 
@@ -96,6 +117,17 @@ export class GameService {
     task.isCompleted = true;
     player.completedTasks.push(taskId);
     room.gameState!.tasksCompleted++;
+
+    // 录制任务完成事件
+    if (room.gameState?.gameId) {
+      replayRecorderService.recordTaskComplete(
+        room.gameState.gameId,
+        playerId,
+        taskId,
+        task.type,
+        task.position
+      );
+    }
 
     // 检查猫咪胜利条件
     if (room.gameState!.tasksCompleted >= room.gameState!.totalTasks) {
@@ -135,6 +167,23 @@ export class GameService {
     room.gameState.status = 'meeting';
     room.gameState.meetingsCalled++;
 
+    // 录制会议事件
+    if (room.gameState?.gameId) {
+      const playerPositions = new Map<string, Position>();
+      room.players.forEach((p, pid) => {
+        playerPositions.set(pid, { ...p.position });
+      });
+      
+      replayRecorderService.recordMeetingCall(
+        room.gameState.gameId,
+        meeting.id,
+        callerId,
+        bodyId,
+        caller.position,
+        playerPositions
+      );
+    }
+
     // 设置投票超时
     setTimeout(() => {
       this.endMeeting(room);
@@ -152,6 +201,17 @@ export class GameService {
     if (!voter || !voter.isAlive) return false;
 
     meeting.votes.set(voterId, targetId);
+    
+    // 录制投票事件
+    if (room.gameState?.gameId) {
+      replayRecorderService.recordVote(
+        room.gameState.gameId,
+        meeting.id,
+        voterId,
+        targetId
+      );
+    }
+    
     return true;
   }
 
@@ -211,6 +271,17 @@ export class GameService {
 
     meeting.result = result;
 
+    // 录制会议结束事件
+    if (room.gameState?.gameId) {
+      replayRecorderService.recordMeetingEnd(
+        room.gameState.gameId,
+        meeting.id,
+        result.ejectedId,
+        result.wasImpostor,
+        meeting.votes
+      );
+    }
+
     // 恢复游戏状态
     room.gameState!.status = 'playing';
     room.gameState!.currentMeeting = undefined;
@@ -248,7 +319,7 @@ export class GameService {
   }
 
   // 结束游戏
-  endGame(room: Room, winner: 'cats' | 'dogs' | 'foxes', reason: string): void {
+  async endGame(room: Room, winner: 'cats' | 'dogs' | 'foxes', reason: string): Promise<void> {
     if (room.gameState) {
       room.gameState.status = 'ended';
       room.gameState.winner = winner;
@@ -256,6 +327,14 @@ export class GameService {
       room.gameState.endTime = new Date();
     }
     room.status = 'ended';
+    
+    // 停止录制并保存回放
+    if (room.gameState?.gameId) {
+      const replayId = await replayRecorderService.stopRecording(room.gameState.gameId, room);
+      if (replayId) {
+        console.log(`[GameService] 游戏结束，回放已保存: ${replayId}`);
+      }
+    }
   }
 
   // 更新击杀冷却

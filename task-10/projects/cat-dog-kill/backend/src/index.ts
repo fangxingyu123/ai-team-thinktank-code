@@ -9,6 +9,7 @@ import Redis from 'ioredis';
 import { config } from './config';
 import { setupGameSocket } from './socket/GameSocket';
 import { setupSpectatorSocket } from './socket/SpectatorSocket';
+import { setupReplaySocket, createReplayRouter } from './socket/ReplaySocket';
 import { roomService } from './services/RoomService';
 import { spectatorService } from './services/SpectatorService';
 
@@ -66,6 +67,9 @@ app.get('/api/rooms/:roomId/spectator', (req, res) => {
   });
 });
 
+// 回放系统 API
+app.use('/api/replays', createReplayRouter());
+
 // 数据库连接
 async function connectDatabases() {
   try {
@@ -109,6 +113,7 @@ async function startServer() {
   // 设置 Socket.IO
   setupGameSocket(io);
   setupSpectatorSocket(io);
+  setupReplaySocket(io);
 
   // 启动 HTTP 服务器
   httpServer.listen(config.server.port, () => {
